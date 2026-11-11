@@ -1,0 +1,8 @@
+czifile==2026.10.14
+matplotlib==3.11.2
+numpy==2.5.4
+pandas==3.1.0
+pillow==13.0.0
+scikit-image==0.26.0
+twine==7.0.0
+uv==0.13.6
