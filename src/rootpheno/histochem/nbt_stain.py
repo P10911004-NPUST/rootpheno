@@ -1,4 +1,3 @@
-
 import numpy as np
 
 from PIL import Image, ImageDraw, ImageFont
@@ -15,11 +14,34 @@ def nbt_stain(
     R:np.ndarray, 
     G: np.ndarray, 
     B:np.ndarray, 
-    k: int = 3,      # how many groups for Otsu thresholding
-    q: float = 50,   # Percentile (??%) for thresholding the multi-Otsu thresholds
-    n: int = 1,      # Keep how many blobs
-    iter: int = 3    # Iterations to perform for image filtering and smoothing
+    k: int = 3,     # how many groups for Otsu thresholding
+    q: float = 50,  # Percentile (??%) for thresholding the multi-Otsu thresholds
+    n: int = 1,     # Keep how many blobs
+    iter: int = 3   # Iterations to perform for image filtering and smoothing
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.uint64, np.uint64, np.float64]:
+    '''NBT staining 
+
+        Used for superoxide signal quantification.
+
+        Input:
+        -----------------------------------------------------------------------------
+        R: a 2D numpy array, the red channel.
+        G: a 2D numpy array, the green channel.
+        B: a 2D numpy array, the blue channel.
+        k: an integer, number of groups for multi-Otsu thresholding.
+        q: a double, percentile (%) for slicing the multi-Otsu thresholds.
+        n: an integer, number of region of interest (ROI) to be selected in descending order.
+        iter: an integer, number of iterations for image filtering and smoothing.
+
+        Output:
+        -----------------------------------------------------------------------------
+        RGB: a 3D numpy array (width, height, channel), data type is uint8, the RGB array.
+        GRAY: a 2D numpy array (width, height), data type is uint8, the gray array.
+        NBT: same with RGB, but overlaying with contours to show the computed NBT stained area.
+        nbt_total: an integer, data type is uint64, the NBT total intensity.
+        nbt_area: an integer, data type is uint64, the NBT stained area.
+        nbt_mean: a double, data type is float64, the NBT average intensity (nbt_total / nbt_area).
+    '''
     k = max(2, k)
     q = max(0, q)
 
@@ -40,22 +62,32 @@ def nbt_stain(
     GRAY = np.invert(convert_to_uint8(GRAY))
     h, w = GRAY.shape
 
+    #<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
     # Excess blue for NBT measure, not simply converting to gray
+    #<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
     ExB = (R + G + B + B + B) / 5
     ExB = np.invert(convert_to_uint8(ExB))
-    
+
+    #<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
     # Reduce image size to accelerate computation
+    #<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
     ExB_small = np.asarray(Image.fromarray(ExB).resize(size=(512, 512)))
 
+    #<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
     # Extract root region, this is the first step to roughly extract the NBT stained area
+    #<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
     root_region = ExB_small * (ExB_small >= threshold_otsu(ExB_small))
 
+    #<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
     # Eliminate noises such as the cell wall or other tissues that were mis-stained
+    #<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
     kernel_size = estimate_kernel_size(root_region)
     kernel = disk(kernel_size)
     root_region = median_filter(root_region, kernel)
     
+    #<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
     # Extract ROI (the NBT stained area) from the root region
+    #<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
     threshold = threshold_multiotsu(root_region, classes=k)
     ROI = root_region >= np.percentile(threshold, q)
     ROI = np.uint8(ROI * 255)
@@ -75,7 +107,9 @@ def nbt_stain(
         # area = max(area) - 1  # keep only the largest
         ROI = remove_small_objects(ROI, max_size=area[keep])
     
-    # Slightly enlarge the ROI to cover the NBT stained area more completely
+    #<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
+    # Enlarge the ROI, slightly enlarge to cover the NBT stained area more completely
+    #<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
     kernel2 = disk(np.ceil(np.sqrt(kernel_size)))
     ROI = dilation(ROI, kernel2)  # This is boolean 2D-array
     ROI = Image.fromarray(np.uint8(ROI)).resize(size=(w, h))
@@ -101,7 +135,7 @@ def nbt_stain(
         font_color = (255, 0, 0)  # RGB, red color
         font_size = np.ceil(np.sqrt((h * 0.035) * (w * 0.035)))
         font_settings = ImageFont.load_default(size=font_size)
-        text = f"Avg: {np.round(nbt_mean, 2)} = {np.round(nbt_total/1_000_000, 2)} M / {nbt_area} pixels"
+        text = f"{np.round(nbt_mean, 2)} = {np.round(nbt_total/1_000_000, 2)} M / {nbt_area} pixels"
         for contour in contours:
             points_xy = [(c[1], c[0]) for c in contour]
             draw.line(points_xy, fill=font_color, width=int(np.ceil(font_size * 0.15)))
@@ -115,13 +149,26 @@ def nbt_stain(
 # Testing    
 #<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<    
 if "__name__" == "__main__":
+    import czifile
     import numpy as np
+    from pathlib import Path
     from PIL import Image
+
+    # folder = Path("Z:/JKLAI_QNAP/Gigi/NBT_20261111").resolve()
+    # img_list = [i.as_posix() for i in folder.glob("*.czi")]
+
+    # print(len(img_list))
+
+    # with czifile.CziFile(img_list[1]) as czi:
+    #     scene = czi.scenes()
+    #     arr = scene.asarray()
+
     img = Image.open("../../../tests/img/NBT/ath_nbt_01.tif")
     arr = np.asarray(img)
     R = arr[:, :, 0]
     G = arr[:, :, 1]
     B = arr[:, :, 2]
     RGB, GRAY, NBT, nbt_total, nbt_area, nbt_mean = nbt_stain(R, G, B)
+    print(nbt_total, nbt_area, nbt_mean)
     Image.fromarray(NBT).show()
 
