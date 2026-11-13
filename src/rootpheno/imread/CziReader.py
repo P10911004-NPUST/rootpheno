@@ -1,6 +1,7 @@
 import czifile
 import numpy as np
 from pathlib import Path
+from PIL import Image
 from PIL.TiffImagePlugin import ImageFileDirectory_v2
 
 from utils import *
@@ -51,49 +52,89 @@ class CziReader:
     def mpp(self) -> dict | None:
         ''' Micrometer per pixel (um / pixel)
 
-            The default unit is meter
+            The default unit of self.distance.get("Value") is meter
         '''
-        unit_convert = meter_convert()
+        unit_convert = meter_convert_to_unit()
 
         ret = {}
         for d in self.distance:
-            ret[d.get("Id")] = None
+            default_val = d.get("Value")
             default_unit = d.get("DefaultUnitFormat")
-            if default_unit is not None:
-                conversion = unit_convert.get(default_unit)
-            if conversion is not None:
-                converted_value = d.get("Value") * conversion
-            if converted_value is not None:
-                ret[d.get("Id")] = converted_value
+            ret[d.get("Id")] = meter_convert_to_unit(default_val, default_unit)
+            # ret[d.get("Id")] = None
+            # default_unit = d.get("DefaultUnitFormat")
+            # if default_unit is not None:
+            #     conversion = unit_convert.get(default_unit)
+            # if conversion is not None:
+            #     converted_value = d.get("Value") * conversion
+            # if converted_value is not None:
+            #     ret[d.get("Id")] = converted_value
         return ret
 
     @property
-    def tiff_info(self):
+    def tiff_info(self) -> ImageFileDirectory_v2:
+        ''' TIFF info
+
+            | Code |     Description
+            |======|===================================================================
+            | 256  | Image width in pixels
+            | 257  | Image height in pixels
+            | 259  | Compression level [1 (uncompressed) - 32773 (high)]
+            | 262  | Color space (1=[grayscale, black is zero], 2=[RGB])
+            | 282  | Resolution of X-axis (pixels/unit), default unit is 3 (centimeter)
+            | 283  | Resolution of Y-axis (pixels/unit), default unit is 3 (centimeter)
+            | 296  | Resolution unit: 1=none, 2=inch, 3=centimeter
+        '''
+        is_RGB = self.try_extract_RGB() is not None
         tiff_info = ImageFileDirectory_v2()
-        tiff_info[256] = self.sizes.get("X")   # ImageWidth (pixels)
-        tiff_info[257] = self.sizes.get("Y")   # ImageHeight (pixels)
-        tiff_info[259] = 1                     # Compression (1 - 32773)
-        tiff_info[282] = 10_000 / self.mpp[0]  # XResolution (pixels/cm)
-        tiff_info[283] = 10_000 / self.mpp[1]  # YResolution (pixels/cm)
-        tiff_info[296] = 3                     # ResolutionUnit (cm)
+        tiff_info[256] = self.sizes.get("X")         # ImageWidth (pixels)
+        tiff_info[257] = self.sizes.get("Y")         # ImageHeight (pixels)
+        tiff_info[259] = 1                           # Compression (1 - 32773)
+        tiff_info[262] = 2 if is_RGB else 1          # PhotometricInterpretation
+        tiff_info[282] = 10_000 / self.mpp.get("X")  # XResolution (pixels/cm)
+        tiff_info[283] = 10_000 / self.mpp.get("Y")  # YResolution (pixels/cm)
+        tiff_info[296] = 3                           # ResolutionUnit (cm)
         return tiff_info
 
+    def try_extract_GRAY(self) -> np.ndarray | None:
+        XY_valid = (self.sizes.get("X") > 1) and (self.sizes.get("Y") > 1)
+        XY_only =  all(self.sizes.get(i) == 1 for i in "CZTRSIBMH")
+        if XY_valid and XY_only:
+            return self.arr[:, :, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+        else:
+            return None
+
     def try_extract_RGB(self) -> np.ndarray | None:
-        C_exists = self.sizes.get("C") == 3
-        S_exists = self.sizes.get("S") == 3
-        if C_exists:
+        XY_valid = (self.sizes.get("X") > 1) and (self.sizes.get("Y") > 1)
+        C_valid = self.sizes.get("C") == 3
+        S_valid = self.sizes.get("S") == 3
+        C_only =  all(self.sizes.get(i) == 1 for i in "ZTRSIBMH")
+        S_only = all(self.sizes.get(i) == 1 for i in "CZTRIBMH")
+        if XY_valid and C_valid and C_only:
             return self.arr[:, :, :, 0, 0, 0, 0, 0, 0, 0, 0]
-        elif S_exists:
+        elif XY_valid and S_valid and S_only:
             return self.arr[:, :, 0, 0, 0, 0, :, 0, 0, 0, 0]
         else:
             return None
 
     def try_extract_Zstack(self) -> np.ndarray | None:
-        Z_exists = self.sizes.get("Z") > 1
-        if Z_exists:
+        Z_valid = self.sizes.get("Z") > 1
+        if Z_valid:
             return self.arr[:, :, 0, :, 0, 0, 0, 0, 0, 0, 0]
         else:
             return None
+
+    def show(self) -> None:
+        GRAY = self.try_extract_GRAY()
+        RGB = self.try_extract_RGB()
+        if GRAY is not None:
+            GRAY = convert_to_uint8(GRAY)
+            GRAY = np.moveaxis(GRAY, 0, 1)
+            Image.fromarray(np.squeeze(GRAY)).show()
+        if RGB is not None:
+            RGB = convert_to_uint8(RGB)
+            RGB = np.moveaxis(RGB, 0, 1)
+            Image.fromarray(np.squeeze(RGB)).show()
 
 
 #<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
