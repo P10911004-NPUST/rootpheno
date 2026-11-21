@@ -4,7 +4,7 @@ from pathlib import Path
 from PIL import Image
 from PIL.TiffImagePlugin import ImageFileDirectory_v2
 
-from utils import *
+from .utils import *
 
 
 class TiffReader:
@@ -33,7 +33,7 @@ class TiffReader:
         with Image.open(self.img_path.as_posix()) as tif:
             self.img = tif
             self.arr = np.asarray(self.img)        # (Y, X, ...)
-            self.arr = np.moveaxis(self.arr, 0 ,1) # (X, Y, ...)
+            self.arr = np.moveaxis(self.arr, 0, 1) # (X, Y, ...)
             is_GRAY = len(self.arr.shape) == 2
             is_RGB = len(self.arr.shape) == 3
             if self.img.n_frames == 1 and is_GRAY:
@@ -66,7 +66,12 @@ class TiffReader:
     def try_extract_GRAY(self) -> np.ndarray | None:
         XY_valid = (self.sizes.get("X") > 1) and (self.sizes.get("Y") > 1)
         XY_only =  all(self.sizes.get(i) == 1 for i in "CZ")
-        return self.arr[:, :, 0, 0] if XY_valid and XY_only else None
+        if XY_valid and XY_only: 
+            gray = np.mean(self.arr, axis=2, keepdims=True)
+            gray = np.mean(gray, axis=3, keepdims=True)
+            return gray.squeeze()  
+        else:
+            return None
 
     def try_extract_RGB(self) -> np.ndarray | None:
         XY_valid = (self.sizes.get("X") > 1) and (self.sizes.get("Y") > 1)

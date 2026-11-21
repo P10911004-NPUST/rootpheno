@@ -7,7 +7,7 @@ from skimage.filters.rank import mean as mean_filter
 from skimage.morphology import disk, erosion, dilation, remove_small_objects
 from skimage.measure import label, regionprops, find_contours
 
-from utils import *
+from .utils import *
 
 
 def nbt_stain(

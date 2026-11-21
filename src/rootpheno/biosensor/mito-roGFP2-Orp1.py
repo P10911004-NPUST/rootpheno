@@ -1,7 +1,7 @@
 
 import numpy as np
 
-from utils import *
+from .utils import *
 
 def mito_roGFP2_Orp1(e405: np.ndarray, e488: np.ndarray):
     if e405.ndim != 2 or e488.ndim != 2:

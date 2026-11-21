@@ -8,7 +8,7 @@ import multiprocessing as mp
 
 from pathlib import Path
 
-from utils import *
+from .utils import *
 
 
 use_cores = max(1, mp.cpu_count() - 1)
@@ -29,7 +29,7 @@ def get_img_list():
 if __name__ == "__main__":
     mp.freeze_support()
     #<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
-    # App's window
+    # Window
     #<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
     app = tk.Tk()
     app.iconbitmap(resource_path("icon.ico"))

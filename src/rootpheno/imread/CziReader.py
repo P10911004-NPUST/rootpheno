@@ -1,10 +1,13 @@
+
 import czifile
 import numpy as np
+import xml.etree.ElementTree as ET
+
 from pathlib import Path
 from PIL import Image
 from PIL.TiffImagePlugin import ImageFileDirectory_v2
 
-from utils import *
+from .utils import *
 
 
 class CziReader:
@@ -41,6 +44,7 @@ class CziReader:
 
         with czifile.CziFile(self.img_path.as_posix(), squeeze=False) as czi:
             scene = czi.scenes()
+            self.xml = ET.fromstring(czi.metadata())
             self.metadata = czi.metadata(asdict=True)["ImageDocument"]["Metadata"]
             self.distance = self.metadata["Scaling"]["Items"]["Distance"]
             self.arr = standardize_dims(scene.asarray(), "".join(scene.dims))
@@ -54,22 +58,42 @@ class CziReader:
 
             The default unit of self.distance.get("Value") is meter
         '''
-        unit_convert = meter_convert_to_unit()
-
         ret = {}
         for d in self.distance:
             default_val = d.get("Value")
             default_unit = d.get("DefaultUnitFormat")
             ret[d.get("Id")] = meter_convert_to_unit(default_val, default_unit)
-            # ret[d.get("Id")] = None
-            # default_unit = d.get("DefaultUnitFormat")
-            # if default_unit is not None:
-            #     conversion = unit_convert.get(default_unit)
-            # if conversion is not None:
-            #     converted_value = d.get("Value") * conversion
-            # if converted_value is not None:
-            #     ret[d.get("Id")] = converted_value
         return ret
+
+    def get_stage_position(self) -> dict | None:
+        # with czifile.CziFile(self.img_path.as_posix(), squeeze=False) as czi:
+        #     xml = ET.fromstring(czi.metadata())
+        xml_parent_keys = "./Metadata/HardwareSetting/ParameterCollection/"
+        x = self.xml.find(xml_parent_keys + "[@Id='MTBStageAxisX']/Position")
+        y = self.xml.find(xml_parent_keys + "[@Id='MTBStageAxisY']/Position")
+        z = self.xml.find(xml_parent_keys + "[@Id='MTBFocus']/Position")
+        # The position unit is micrometer
+        return {
+            "X": np.float64(x.text) if x is not None else None, 
+            "Y": np.float64(y.text) if y is not None else None, 
+            "Z": np.float64(z.text) if z is not None else None
+        }
+
+
+    def get_stage_position_limit(self) -> dict | None:
+        xml_parent_keys = "./Metadata/HardwareSetting/Configuration/Device"
+        xmin = self.xml.find(xml_parent_keys + "[@Id='MTBStageAxisX']/MinPosition")
+        ymin = self.xml.find(xml_parent_keys + "[@Id='MTBStageAxisY']/MinPosition")
+        zmin = self.xml.find(xml_parent_keys + "[@Id='MTBFocus']/MinPosition")
+        xmax = self.xml.find(xml_parent_keys + "[@Id='MTBStageAxisX']/MaxPosition")
+        ymax = self.xml.find(xml_parent_keys + "[@Id='MTBStageAxisY']/MaxPosition")
+        zmax = self.xml.find(xml_parent_keys + "[@Id='MTBFocus']/MaxPosition")
+        x = np.float64((xmin.text, xmax.text)) if xmin is not None else None
+        y = np.float64((ymin.text, ymax.text)) if ymin is not None else None
+        z = np.float64((zmin.text, zmax.text)) if zmin is not None else None
+        # The position unit is micrometer
+        return {"X": x, "Y": y, "Z": z}
+
 
     @property
     def tiff_info(self) -> ImageFileDirectory_v2:
@@ -93,8 +117,14 @@ class CziReader:
         tiff_info[262] = 2 if is_RGB else 1          # PhotometricInterpretation
         tiff_info[282] = 10_000 / self.mpp.get("X")  # XResolution (pixels/cm)
         tiff_info[283] = 10_000 / self.mpp.get("Y")  # YResolution (pixels/cm)
+
+        stage_position = self.get_stage_position()
+        tiff_info[286] = stage_position.get("X")     # X position of the image (um)
+        tiff_info[287] = stage_position.get("Y")     # Y position of the image (um)
+
         tiff_info[296] = 3                           # ResolutionUnit (cm)
         return tiff_info
+
 
     def try_extract_GRAY(self) -> np.ndarray | None:
         XY_valid = (self.sizes.get("X") > 1) and (self.sizes.get("Y") > 1)
@@ -103,6 +133,7 @@ class CziReader:
             return self.arr[:, :, 0, 0, 0, 0, 0, 0, 0, 0, 0]
         else:
             return None
+
 
     def try_extract_RGB(self) -> np.ndarray | None:
         XY_valid = (self.sizes.get("X") > 1) and (self.sizes.get("Y") > 1)
@@ -117,12 +148,14 @@ class CziReader:
         else:
             return None
 
+    # Canonical image dimensions: X, Y, C, Z, T, R, S, I, B, M, H
     def try_extract_Zstack(self) -> np.ndarray | None:
         Z_valid = self.sizes.get("Z") > 1
         if Z_valid:
             return self.arr[:, :, 0, :, 0, 0, 0, 0, 0, 0, 0]
         else:
             return None
+
 
     def show(self) -> None:
         GRAY = self.try_extract_GRAY()
@@ -142,12 +175,18 @@ class CziReader:
 #<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
 if "__name__" == "__main__":
     from pathlib import Path
-    axio     = Path("../../../tests/img/NBT/ath_nbt-reddish.czi").resolve()
-    confocal = Path("../../../tests/img/BES-H2O2-Ac.czi").resolve()
+    from rootpheno.imread.CziReader import CziReader
+    axio     = Path("../../tests/img/NBT/ath_nbt_blueish.czi").resolve()
+    confocal = Path("../../tests/img/BES-H2O2-Ac.czi").resolve()
     img_1 = CziReader(axio)
     img_2 = CziReader(confocal)
     print(img_1.sizes)
     print(img_2.sizes)
     img_1.try_extract_RGB()
     img_2.try_extract_Zstack()
+    img_2.get_stage_position()
+
+    arr2 = img_2.arr[:, :, 1, 9, 0, 0, 0, 0, 0, 0, 0]
+    arr2 = np.moveaxis(arr2, 0, -1)
+    Image.fromarray(arr2).show()
 

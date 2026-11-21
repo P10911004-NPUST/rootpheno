@@ -1,24 +1,59 @@
 [project]
-name = "example_package_jklai"
+name = "rootpheno"
 version = "0.0.1"
 authors = [
   { name="jklai", email="p10911004@gmail.com" },
 ]
-description = "A small example package"
+description = "A Python toolkit for plant root phenotyping."
 readme = "README.md"
 requires-python = ">=3.9"
-classifiers = [
-    "Programming Language :: Python :: 3",
-    "Operating System :: OS Independent",
-]
 license = "MIT"
 license-files = ["LICEN[CS]E*"]
 
-[project.urls]
-Homepage = "https://github.com/pypa/sampleproject"
-Issues = "https://github.com/pypa/sampleproject/issues"
-
-[tool.uv.workspace]
-members = [
-    "rootpheno",
+keywords = [
+    "plant-science",
+    "root-phenotyping",
+    "image-analysis",
+    "microscopy",
+    "bioimage-analysis",
+    "plant-biology"
 ]
+
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Science/Research",
+    "Topic :: Scientific/Engineering :: Image Processing",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3 :: Only",
+]
+
+dependencies = [
+    "czifile",
+    "matplotlib",
+    "numpy",
+    "opencv-contrib-python",
+    "pandas",
+    "pillow",
+    "scikit-image",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest",
+    "pytest-cov",
+    "ruff",
+    "build",
+    "twine",
+]
+
+[project.urls]
+Homepage = "https://github.com/P10911004-NPUST/rootpheno"
+Repository = "https://github.com/P10911004-NPUST/rootpheno"
+Issues = "https://github.com/P10911004-NPUST/rootpheno/issues"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
