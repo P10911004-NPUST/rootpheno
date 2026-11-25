@@ -108,6 +108,8 @@ class CziReader:
             | 282  | Resolution of X-axis (pixels/unit), default unit is 3 (centimeter)
             | 283  | Resolution of Y-axis (pixels/unit), default unit is 3 (centimeter)
             | 296  | Resolution unit: 1=none, 2=inch, 3=centimeter
+            | 901  | Stage X position (um)
+            | 902  | Stage Y position (um)
         '''
         is_RGB = self.try_extract_RGB() is not None
         tiff_info = ImageFileDirectory_v2()
@@ -117,12 +119,10 @@ class CziReader:
         tiff_info[262] = 2 if is_RGB else 1          # PhotometricInterpretation
         tiff_info[282] = 10_000 / self.mpp.get("X")  # XResolution (pixels/cm)
         tiff_info[283] = 10_000 / self.mpp.get("Y")  # YResolution (pixels/cm)
-
-        stage_position = self.get_stage_position()
-        tiff_info[286] = stage_position.get("X")     # X position of the image (um)
-        tiff_info[287] = stage_position.get("Y")     # Y position of the image (um)
-
         tiff_info[296] = 3                           # ResolutionUnit (cm)
+        stage_position = self.get_stage_position()
+        tiff_info[901] = stage_position.get("X")     # X position of the image (um)
+        tiff_info[902] = stage_position.get("Y")     # Y position of the image (um)
         return tiff_info
 
 

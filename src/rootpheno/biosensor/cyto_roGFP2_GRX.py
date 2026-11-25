@@ -1,7 +1,14 @@
+import czifile
 
 import numpy as np
+import pandas as pd
 
+from PIL import Image
+from pathlib import Path
+
+from rootpheno.imread.CziReader import CziReader
 from .utils import *
+
 
 def cyto_roGFP2_GRX(e405: np.ndarray, e488: np.ndarray):
     if e405.ndim != 2 or e488.ndim != 2:
@@ -15,20 +22,29 @@ def cyto_roGFP2_GRX(e405: np.ndarray, e488: np.ndarray):
     e488 = e488 * (e405.max() / e488.max())
     e405 = e405 ** 2
     e488 = e488 ** 2
-    ro = np.divide(e405 - e488, e405 + e488, out = np.zeros_like(e488), where = e405 != e488)
+    ro = np.divide(
+        e405 - e488, 
+        e405 + e488, 
+        out = np.zeros_like(e488), 
+        where = e405 != e488
+    )
     lut = gray_to_lut(ro)
+    lut[background_mask] = 255
     return ro, lut
+
+
+
 
 #<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
 # Testing
 #<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
 if "__name__" == "__main__":
-    import czifile
-    from PIL import Image
-    with czifile.CziFile("../../../tests/img/RO-index/DAT02_22C_R01-1.czi") as czi:
-        scene = czi.scenes()
-        arr = scene.asarray()
-        e405 = np.take(arr, 0, 0)
-        e488 = np.take(arr, 1, 0)
-        ro, lut = cyto_roGFP2_GRX(e405, e488)
-        Image.fromarray(lut).show()
+    input_folder = "./tests/img/RO-index/czi"
+    split_czi_and_stitch()
+    # with czifile.CziFile("../../../tests/img/RO-index/DAT02_22C_R01-1.czi") as czi:
+    #     scene = czi.scenes()
+    #     arr = scene.asarray()
+    #     e405 = np.take(arr, 0, 0)
+    #     e488 = np.take(arr, 1, 0)
+    #     ro, lut = cyto_roGFP2_GRX(e405, e488)
+    #     Image.fromarray(lut).show()

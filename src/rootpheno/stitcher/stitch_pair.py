@@ -16,9 +16,18 @@ def stitch_pair(img1, img2, transform_mat: np.ndarray | None = None):
 
     The estimated transformation maps img1 coordinates to img2 coordinates.
 
+    Inputs
+    ------
+    img1: the reference array to be stitch on
+    img2: the array stitch onto the img1
+    transform_mat: np.ndarray
+        2x3 affine transformation matrix, used to transform the img1
+
+
     Returns
     -------
-    stitched : np.ndarray
+    stitched_img : np.ndarray
+        2D-array of the stitched image
     transform_mat : np.ndarray
         2x3 affine transformation.
     """
@@ -35,18 +44,11 @@ def stitch_pair(img1, img2, transform_mat: np.ndarray | None = None):
         if des1 is None or des2 is None:
             raise RuntimeError("Not enough SIFT features.")
 
-        # FLANN matcher.
-        index_params = dict(
-            algorithm=1,  # FLANN_INDEX_KDTREE
-            trees=5
-        )
+        # FLANN matcher. algorithm = 1 -> FLANN_INDEX_KDTREE
+        index_params = dict(algorithm=1, trees=5)
         search_params = dict(checks=100)
 
-        matcher = cv2.FlannBasedMatcher(
-            index_params,
-            search_params
-        )
-
+        matcher = cv2.FlannBasedMatcher(index_params, search_params)
         matches = matcher.knnMatch(des1, des2, k=2)
 
         # Lowe's ratio test.
@@ -69,10 +71,10 @@ def stitch_pair(img1, img2, transform_mat: np.ndarray | None = None):
             src_pts,
             dst_pts,
             method=cv2.RANSAC,
-            ransacReprojThreshold=5.0,
-            maxIters=5000,
-            confidence=0.995,
-            refineIters=20
+            # ransacReprojThreshold=5.0,
+            # maxIters=5000,
+            # confidence=0.995,
+            # refineIters=20
         )
 
         if transform_mat is None:
@@ -112,7 +114,6 @@ def stitch_pair(img1, img2, transform_mat: np.ndarray | None = None):
     ], dtype=np.float64)
 
     M_canvas = offset @ np.vstack([transform_mat, [0, 0, 1]])
-
     M_canvas = M_canvas[:2]
 
     # Warp first image.
@@ -147,13 +148,13 @@ def stitch_pair(img1, img2, transform_mat: np.ndarray | None = None):
     )
 
     # Maximum intensity blending.
-    stitched = np.zeros(
+    stitched_img = np.zeros(
         (canvas_height, canvas_width),
         dtype=img1.dtype
     )
 
-    stitched[mask1 > 0] = warped1[mask1 > 0]
-    stitched[mask2 > 0] = warped2[mask2 > 0]
+    stitched_img[mask1 > 0] = warped1[mask1 > 0]
+    stitched_img[mask2 > 0] = warped2[mask2 > 0]
 
     # # In the overlapping region, pixels were substituted with the 
     # # maximum value between the img1 and img2.
@@ -162,7 +163,26 @@ def stitch_pair(img1, img2, transform_mat: np.ndarray | None = None):
     # stitched[overlap] = np.maximum(warped1[overlap], warped2[overlap])
     # stitched[only2] = warped2[only2]
 
-    return stitched, transform_mat
+    return stitched_img, transform_mat
+
+
+def stitch_pairs(images: list[np.ndarray], stage_position: dict):
+    """
+    Stitch multiple images using SIFT, FLANN and RANSAC.
+
+    The estimated transformation maps previous img coordinates to consecutive img coordinates.
+
+    Inputs
+    ------
+    images: a list of np.ndarray
+
+    Returns
+    -------
+    stitched_img : np.ndarray
+        2D-array of the stitched image
+    """
+    n_img = len(images)
+
 
 
 
@@ -175,10 +195,10 @@ if __name__ == "__main__":
         Image.fromarray(convert_to_uint8(arr)).show()
 
 
-    input_folder = Path("../../tests/img/RO-index/czi/")
+    input_folder = Path("./tests/img/RO-index/czi")
     czi_list = [p for p in input_folder.iterdir()if p.suffix.lower() in (".czi", ".czi")]
 
-    input_folder = Path("../../tests/img/RO-index/RO_LUT")
+    input_folder = Path("./tests/img/RO-index/RO_LUT")
     tiff_list = [p for p in input_folder.iterdir()if p.suffix.lower() in (".tif", ".tiff")]
 
     images = []
