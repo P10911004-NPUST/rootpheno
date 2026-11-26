@@ -1,3 +1,12 @@
+# User files
+*.ppt
+*.pptx
+*.doc
+*.docx
+
+# Executable files
+*.exe
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[codz]
@@ -7,6 +16,8 @@ __pycache__/
 *.so
 
 # Distribution / packaging
+src/rootpheno/app/dist
+src/rootpheno/app/build
 .Python
 build/
 develop-eggs/

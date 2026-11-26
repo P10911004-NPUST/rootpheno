@@ -4,7 +4,12 @@ from pathlib import Path
 from PIL import Image
 from PIL.TiffImagePlugin import ImageFileDirectory_v2
 
-from .utils import *
+from rootpheno.imread.utils import (
+    convert_to_uint8, 
+    tiff_standard_dims, 
+    standardize_dims,
+    unit_convert_to_micron
+)
 
 
 class TiffReader:

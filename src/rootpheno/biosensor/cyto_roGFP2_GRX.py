@@ -1,13 +1,11 @@
-import czifile
 
 import numpy as np
-import pandas as pd
 
-from PIL import Image
-from pathlib import Path
-
-from rootpheno.imread.CziReader import CziReader
-from .utils import *
+from rootpheno.biosensor.utils import (
+    extract_root_region,
+    percentile_filter,
+    gray_to_lut
+)
 
 
 def cyto_roGFP2_GRX(e405: np.ndarray, e488: np.ndarray):
@@ -16,17 +14,22 @@ def cyto_roGFP2_GRX(e405: np.ndarray, e488: np.ndarray):
     e405, e405_mask = extract_root_region(e405)
     e488, e488_mask = extract_root_region(e488)
     protein_exist_mask = np.bitwise_or(e405_mask, e488_mask)
-    background_mask = np.bitwise_invert(protein_exist_mask)
-    e405 = np.float64(e405)
-    e488 = np.float64(e488)
+    null_mask = (e405 == e488)
+    background_mask = np.bitwise_or(
+        np.bitwise_invert(protein_exist_mask), 
+        null_mask
+    )
+    e405 = percentile_filter(e405)
+    e488 = percentile_filter(e488)
     e488 = e488 * (e405.max() / e488.max())
+    e488 = np.nan_to_num(e488, nan=0)
     e405 = e405 ** 2
     e488 = e488 ** 2
     ro = np.divide(
         e405 - e488, 
         e405 + e488, 
         out = np.zeros_like(e488), 
-        where = e405 != e488
+        where = ((e405 + e488) != 0)
     )
     lut = gray_to_lut(ro)
     lut[background_mask] = 255
@@ -38,13 +41,20 @@ def cyto_roGFP2_GRX(e405: np.ndarray, e488: np.ndarray):
 #<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
 # Testing
 #<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
-if "__name__" == "__main__":
-    input_folder = "./tests/img/RO-index/czi"
-    split_czi_and_stitch()
-    # with czifile.CziFile("../../../tests/img/RO-index/DAT02_22C_R01-1.czi") as czi:
-    #     scene = czi.scenes()
-    #     arr = scene.asarray()
-    #     e405 = np.take(arr, 0, 0)
-    #     e488 = np.take(arr, 1, 0)
-    #     ro, lut = cyto_roGFP2_GRX(e405, e488)
-    #     Image.fromarray(lut).show()
+# if "__name__" == "__main__":
+#     import czifile
+#     import numpy as np
+#     import pandas as pd
+#     from PIL import Image
+#     from pathlib import Path
+#     from rootpheno.imread.CziReader import CziReader
+
+#     input_folder = "./tests/img/RO-index/czi"
+#     split_czi_and_stitch()
+#     with czifile.CziFile("../../../tests/img/RO-index/DAT02_22C_R01-1.czi") as czi:
+#         scene = czi.scenes()
+#         arr = scene.asarray()
+#         e405 = np.take(arr, 0, 0)
+#         e488 = np.take(arr, 1, 0)
+#         ro, lut = cyto_roGFP2_GRX(e405, e488)
+#         Image.fromarray(lut).show()

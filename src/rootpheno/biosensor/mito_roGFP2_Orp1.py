@@ -1,7 +1,11 @@
 
 import numpy as np
 
-from .utils import *
+from rootpheno.biosensor.utils import (
+    extract_root_region,
+    gray_to_lut
+)
+
 
 def mito_roGFP2_Orp1(e405: np.ndarray, e488: np.ndarray):
     if e405.ndim != 2 or e488.ndim != 2:
@@ -25,13 +29,13 @@ def mito_roGFP2_Orp1(e405: np.ndarray, e488: np.ndarray):
 #<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
 # Testing
 #<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
-if "__name__" == "__main__":
-    import czifile
-    from PIL import Image
-    with czifile.CziFile("Z:/JKLAI_QNAP/Gigi/mitoOrp1-roGFP2/orp-roGFP ritf1-4-1.czi") as czi:
-        scene = czi.scenes()
-        arr = scene.asarray()
-        e405 = np.take(arr, 0, 0)
-        e488 = np.take(arr, 1, 0)
-        ro, lut = mito_roGFP2_Orp1(e405, e488)
-        Image.fromarray(lut).show()
+# if "__name__" == "__main__":
+#     import czifile
+#     from PIL import Image
+#     with czifile.CziFile("Z:/JKLAI_QNAP/Gigi/mitoOrp1-roGFP2/orp-roGFP ritf1-4-1.czi") as czi:
+#         scene = czi.scenes()
+#         arr = scene.asarray()
+#         e405 = np.take(arr, 0, 0)
+#         e488 = np.take(arr, 1, 0)
+#         ro, lut = mito_roGFP2_Orp1(e405, e488)
+#         Image.fromarray(lut).show()

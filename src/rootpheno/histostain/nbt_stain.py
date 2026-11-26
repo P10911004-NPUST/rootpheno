@@ -7,7 +7,10 @@ from skimage.filters.rank import mean as mean_filter
 from skimage.morphology import disk, erosion, dilation, remove_small_objects
 from skimage.measure import label, regionprops, find_contours
 
-from .utils import *
+from rootpheno.histostain.utils import (
+    convert_to_uint8,
+    estimate_kernel_size,
+)
 
 
 def nbt_stain(
@@ -148,27 +151,27 @@ def nbt_stain(
 #<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
 # Testing    
 #<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<    
-if "__name__" == "__main__":
-    import czifile
-    import numpy as np
-    from pathlib import Path
-    from PIL import Image
+# if "__name__" == "__main__":
+#     import czifile
+#     import numpy as np
+#     from pathlib import Path
+#     from PIL import Image
 
-    # folder = Path("Z:/JKLAI_QNAP/Gigi/NBT_20261111").resolve()
-    # img_list = [i.as_posix() for i in folder.glob("*.czi")]
+#     folder = Path("Z:/JKLAI_QNAP/Gigi/NBT_20261111").resolve()
+#     img_list = [i.as_posix() for i in folder.glob("*.czi")]
 
-    # print(len(img_list))
+#     print(len(img_list))
 
-    # with czifile.CziFile(img_list[1]) as czi:
-    #     scene = czi.scenes()
-    #     arr = scene.asarray()
+#     with czifile.CziFile(img_list[1]) as czi:
+#         scene = czi.scenes()
+#         arr = scene.asarray()
 
-    img = Image.open("../../../tests/img/NBT/ath_nbt_01.tif")
-    arr = np.asarray(img)
-    R = arr[:, :, 0]
-    G = arr[:, :, 1]
-    B = arr[:, :, 2]
-    RGB, GRAY, NBT, nbt_total, nbt_area, nbt_mean = nbt_stain(R, G, B)
-    print(nbt_total, nbt_area, nbt_mean)
-    Image.fromarray(NBT).show()
+#     img = Image.open("../../../tests/img/NBT/ath_nbt_01.tif")
+#     arr = np.asarray(img)
+#     R = arr[:, :, 0]
+#     G = arr[:, :, 1]
+#     B = arr[:, :, 2]
+#     RGB, GRAY, NBT, nbt_total, nbt_area, nbt_mean = nbt_stain(R, G, B)
+#     print(nbt_total, nbt_area, nbt_mean)
+#     Image.fromarray(NBT).show()
 

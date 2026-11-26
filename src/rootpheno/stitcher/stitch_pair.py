@@ -2,12 +2,7 @@
 import cv2
 import numpy as np
 
-from PIL import Image
-from pathlib import Path
-
 from rootpheno.imread.utils import convert_to_uint8
-from rootpheno.imread.CziReader import CziReader
-from rootpheno.imread.TiffReader import TiffReader
 
 
 def stitch_pair(img1, img2, transform_mat: np.ndarray | None = None):
@@ -45,10 +40,10 @@ def stitch_pair(img1, img2, transform_mat: np.ndarray | None = None):
             raise RuntimeError("Not enough SIFT features.")
 
         # FLANN matcher. algorithm = 1 -> FLANN_INDEX_KDTREE
-        index_params = dict(algorithm=1, trees=5)
-        search_params = dict(checks=100)
-
-        matcher = cv2.FlannBasedMatcher(index_params, search_params)
+        # index_params = dict(algorithm=1, trees=5)
+        # search_params = dict(checks=200)
+        # matcher = cv2.FlannBasedMatcher(index_params, search_params)
+        matcher = cv2.BFMatcher()
         matches = matcher.knnMatch(des1, des2, k=2)
 
         # Lowe's ratio test.
@@ -71,10 +66,10 @@ def stitch_pair(img1, img2, transform_mat: np.ndarray | None = None):
             src_pts,
             dst_pts,
             method=cv2.RANSAC,
-            # ransacReprojThreshold=5.0,
-            # maxIters=5000,
-            # confidence=0.995,
-            # refineIters=20
+            ransacReprojThreshold=5.0,
+            maxIters=5000,
+            confidence=0.995,
+            refineIters=20
         )
 
         if transform_mat is None:
@@ -166,67 +161,52 @@ def stitch_pair(img1, img2, transform_mat: np.ndarray | None = None):
     return stitched_img, transform_mat
 
 
-def stitch_pairs(images: list[np.ndarray], stage_position: dict):
-    """
-    Stitch multiple images using SIFT, FLANN and RANSAC.
-
-    The estimated transformation maps previous img coordinates to consecutive img coordinates.
-
-    Inputs
-    ------
-    images: a list of np.ndarray
-
-    Returns
-    -------
-    stitched_img : np.ndarray
-        2D-array of the stitched image
-    """
-    n_img = len(images)
-
-
 
 
 #<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
 # Testing
 #<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
-if __name__ == "__main__":
+# if __name__ == "__main__":
+#     from PIL import Image
+#     from pathlib import Path
+#     from rootpheno.imread.CziReader import CziReader
+#     from rootpheno.imread.TiffReader import TiffReader
 
-    def imshow(arr):
-        Image.fromarray(convert_to_uint8(arr)).show()
+#     def imshow(arr):
+#         Image.fromarray(convert_to_uint8(arr)).show()
 
+#     input_folder = Path("./tests/img/RO-index/czi")
+#     czi_list = [p for p in input_folder.iterdir()if p.suffix.lower() in (".czi", ".czi")]
 
-    input_folder = Path("./tests/img/RO-index/czi")
-    czi_list = [p for p in input_folder.iterdir()if p.suffix.lower() in (".czi", ".czi")]
+#     input_folder = Path("./tests/img/RO-index/RO_LUT")
+#     tiff_list = [p for p in input_folder.iterdir()if p.suffix.lower() in (".tif", ".tiff")]
 
-    input_folder = Path("./tests/img/RO-index/RO_LUT")
-    tiff_list = [p for p in input_folder.iterdir()if p.suffix.lower() in (".tif", ".tiff")]
+#     images = []
+#     mpp_x = []
+#     mpp_y = []
+#     stage_x_um = []
+#     stage_y_um = []
+#     for path in czi_list:
+#         czi = CziReader(path)
+#         img = np.moveaxis(np.take(czi.arr, 2, 2).squeeze(), 0, -1)
+#         images.append(img)
+#         mpp_x.append(czi.mpp.get("X"))
+#         mpp_y.append(czi.mpp.get("Y"))
+#         sp = czi.get_stage_position()
+#         stage_x_um.append(sp.get("X"))
+#         stage_y_um.append(sp.get("Y"))
 
-    images = []
-    mpp_x = []
-    mpp_y = []
-    stage_x_um = []
-    stage_y_um = []
-    for path in czi_list:
-        czi = CziReader(path)
-        img = np.moveaxis(np.take(czi.arr, 2, 2).squeeze(), 0, -1)
-        images.append(img)
-        mpp_x.append(czi.mpp.get("X"))
-        mpp_y.append(czi.mpp.get("Y"))
-        sp = czi.get_stage_position()
-        stage_x_um.append(sp.get("X"))
-        stage_y_um.append(sp.get("Y"))
-
-    warped_img, transform_mat = stitch_pair(images[0], images[1])
-    imshow(warped_img)
+#     warped_img, transform_mat = stitch_pair(images[0], images[1])
+#     imshow(warped_img)
     
-    images = []
-    for path in tiff_list:
-        tiff = TiffReader(path)
-        img = np.moveaxis(np.mean(tiff.arr, 2).squeeze(), 0, -1)
-        images.append(img)
+#     images = []
+#     for path in tiff_list:
+#         tiff = TiffReader(path)
+#         img = np.moveaxis(np.mean(tiff.arr, 2).squeeze(), 0, -1)
+#         images.append(img)
 
-    warped_img, transform_mat = stitch_pair(images[0], images[1], transform_mat)
+#     warped_img, transform_mat = stitch_pair(images[0], images[1], transform_mat)
 
-    imshow(warped_img)
+#     imshow(warped_img)
         
         

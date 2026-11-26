@@ -7,7 +7,12 @@ from pathlib import Path
 from PIL import Image
 from PIL.TiffImagePlugin import ImageFileDirectory_v2
 
-from .utils import *
+from rootpheno.imread.utils import (
+    standardize_dims,
+    czi_standard_dims,
+    meter_convert_to_unit,
+    convert_to_uint8
+)
 
 
 class CziReader:

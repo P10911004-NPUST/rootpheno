@@ -1,6 +1,4 @@
-from rootpheno.stitcher import stitch_pair
 import re
-import sys
 import time
 
 import numpy as np
@@ -10,24 +8,28 @@ import multiprocessing as mp
 
 from PIL import Image
 from pathlib import Path
+from datetime import datetime
 from tkinter import filedialog
 
-from rootpheno.app.utils import *
+from rootpheno.app.utils import resource_path
 from rootpheno.imread.CziReader import CziReader
-from rootpheno.imread.TiffReader import TiffReader
 from rootpheno.biosensor.cyto_roGFP2_GRX import cyto_roGFP2_GRX
-from rootpheno.biosensor.utils import gray_to_lut
 from rootpheno.stitcher.stitch_pair import stitch_pair
 
 
 use_cores = max(1, mp.cpu_count() - 1)
+date_time = datetime.now().strftime("%Y%m%d-%H%M%S")
 
 
 def get_folder_path() -> None:
+    input_message.set("")
+    done_message.set("")
+    timer_message.set("")
     _input_folder_path = filedialog.askdirectory()
     _input_folder_path = Path(_input_folder_path).expanduser().resolve()
     input_folder_dir.set(_input_folder_path.as_posix())
     _czi_path_list = [i for i in _input_folder_path.iterdir() if i.suffix.lower() == ".czi"]
+    n_img.set(len(_czi_path_list))
     metadata_dir.set((_input_folder_path / "metadata.csv").as_posix())
     if not Path(metadata_dir.get()).exists():
         m = f'Please check the <grouping> and <ordering> columns in "metadata.csv"'
@@ -110,7 +112,8 @@ def guess_ordering(csv: pd.DataFrame) -> pd.DataFrame:
     return pd.DataFrame(ordering)
 
 
-def compute_pre_mosaic():
+def compute_local():
+    start_time = time.perf_counter()
     input_folder = Path(input_folder_dir.get())
     output_folder = input_folder.parent / ("OUT_" + input_folder.stem)
     output_folder = output_folder / "pre_mosaic"
@@ -128,9 +131,12 @@ def compute_pre_mosaic():
         graytiff[262] = 1
         tiff_name = czi.filename + ".tif"
         arr = czi.arr
-        e405 = np.moveaxis(arr.take(0, 2).squeeze(), 0, 1)
-        e488 = np.moveaxis(arr.take(1, 2).squeeze(), 0, 1)
-        pi = np.moveaxis(arr.take(2, 2).squeeze(), 0, 1)
+        e405 = np.take(arr, 0, 2)  # 1st layer from C <- (X, Y, C, Z, T, R, S, I, B, M, H)
+        e488 = np.take(arr, 1, 2)  # 2nd layer from C <- (X, Y, C, Z, T, R, S, I, B, M, H)
+        pi = np.take(arr, 2, 2)  # 3rd layer from C <- (X, Y, C, Z, T, R, S, I, B, M, H)
+        e405 = np.moveaxis(e405.squeeze(), 0, 1)  # (X, Y) -> (Y, X)
+        e488 = np.moveaxis(e488.squeeze(), 0, 1)  # (X, Y) -> (Y, X)
+        pi = np.moveaxis(pi.squeeze(), 0, 1)  # (X, Y) -> (Y, X)
         ro, lut = cyto_roGFP2_GRX(e405, e488)
 
         e405_output = subfolders[0] + f"/{tiff_name}"
@@ -153,10 +159,79 @@ def compute_pre_mosaic():
         lut_img = Image.fromarray(lut)
         lut_img.save(lut_output, format="tiff", tiffinfo = rgbtiff)
 
-    complete_message.set("Local RO-index completed !!!")
+    # Stitching pre-mosaic images
+    output_folder = output_folder.with_name("mosaic")
+    subfolders = []
+    for s in ['405 nm', '488 nm', 'PI', 'RO', 'RO_LUT']:
+        sub = output_folder / s
+        sub.mkdir(parents=True, exist_ok=True)
+        subfolders.append(sub.as_posix())
+
+    for g in np.unique(csv.grouping):
+        df = csv[csv["grouping"] == g]
+        df = df.sort_values("ordering")
+        czi_list = (df.dirname + "/" + df.basename).tolist()
+        for i in range(len(czi_list)):
+            stitch_success = False
+            czi = CziReader(czi_list[i])
+            tiff_name = czi.filename + ".tif"
+            arr = czi.arr
+            if i == 0:
+                e405 = np.moveaxis(arr.take(0, 2).squeeze(), 0, 1)
+                e488 = np.moveaxis(arr.take(1, 2).squeeze(), 0, 1)
+                pi = np.moveaxis(arr.take(2, 2).squeeze(), 0, 1)
+
+            try:
+                stitch_success = True
+                _e405 = np.moveaxis(arr.take(0, 2).squeeze(), 0, 1)
+                _e488 = np.moveaxis(arr.take(1, 2).squeeze(), 0, 1)
+                _pi = np.moveaxis(arr.take(2, 2).squeeze(), 0, 1)
+                pi, transform = stitch_pair(pi, _pi)
+                e405, _ = stitch_pair(e405, _e405, transform)
+                e488, _ = stitch_pair(e488, _e488, transform)
+            except:
+                continue
+
+        ro, lut = cyto_roGFP2_GRX(e405, e488)
+
+        if stitch_success:
+            rgbtiff = czi.tiff_info
+            height, width = pi.shape
+            rgbtiff[256] = width
+            rgbtiff[257] = height
+            graytiff = rgbtiff
+            graytiff[262] = 1
+
+            e405_output = subfolders[0] + f"/{tiff_name}"
+            e405_img = Image.fromarray(e405)
+            e405_img.save(e405_output, format="tiff", tiffinfo = graytiff)
+
+            e488_output = subfolders[1] + f"/{tiff_name}"
+            e488_img = Image.fromarray(e488)
+            e488_img.save(e488_output, format="tiff", tiffinfo = graytiff)
+
+            pi_output = subfolders[2] + f"/{tiff_name}"
+            pi_img = Image.fromarray(pi)
+            pi_img.save(pi_output, format="tiff", tiffinfo = graytiff)
+            
+            ro_output = subfolders[3] + f"/{tiff_name}"
+            ro_img = Image.fromarray(ro)
+            ro_img.save(ro_output, format="tiff", tiffinfo = graytiff)
+
+            lut_output = subfolders[4] + f"/{tiff_name}"
+            lut_img = Image.fromarray(lut)
+            lut_img.save(lut_output, format="tiff", tiffinfo = rgbtiff)
+
+    end_time = time.perf_counter()
+    ct = round(end_time - start_time, 2)  # consumed time
+    ips = round(n_img.get() / ct, 2)  # img per sec
+
+    timer_message.set(f"---------- {ct} secs [{ips} img/sec] ----------")
+    done_message.set("Local RO-index completed !!!")
 
 
-def compute_mosaic():
+def compute_global():
+    start_time = time.perf_counter()
     input_folder = Path(input_folder_dir.get())
     output_folder = input_folder.parent / ("OUT_" + input_folder.stem)
     output_folder = output_folder / "mosaic"
@@ -172,6 +247,7 @@ def compute_mosaic():
         df = df.sort_values("ordering")
         czi_list = (df.dirname + "/" + df.basename).tolist()
         for i in range(len(czi_list)):
+            stitch_success = False
             czi = CziReader(czi_list[i])
             tiff_name = czi.filename + ".tif"
             arr = czi.arr
@@ -179,77 +255,54 @@ def compute_mosaic():
                 e405 = np.moveaxis(arr.take(0, 2).squeeze(), 0, 1)
                 e488 = np.moveaxis(arr.take(1, 2).squeeze(), 0, 1)
                 pi = np.moveaxis(arr.take(2, 2).squeeze(), 0, 1)
-            else:
+
+            try:
                 _e405 = np.moveaxis(arr.take(0, 2).squeeze(), 0, 1)
                 _e488 = np.moveaxis(arr.take(1, 2).squeeze(), 0, 1)
                 _pi = np.moveaxis(arr.take(2, 2).squeeze(), 0, 1)
                 pi, transform = stitch_pair(pi, _pi)
                 e405, _ = stitch_pair(e405, _e405, transform)
                 e488, _ = stitch_pair(e488, _e488, transform)
-                ro, lut = cyto_roGFP2_GRX(e405, e488)
+                stitch_success = True
+            except:
+                continue
 
-        rgbtiff = czi.tiff_info
-        height, width = pi.shape
-        rgbtiff[256] = width
-        rgbtiff[257] = height
-        graytiff = rgbtiff
-        graytiff[262] = 1
+        ro, lut = cyto_roGFP2_GRX(e405, e488)
 
-        e405_output = subfolders[0] + f"/{tiff_name}"
-        e405_img = Image.fromarray(e405)
-        e405_img.save(e405_output, format="tiff", tiffinfo = graytiff)
+        if stitch_success:
+            rgbtiff = czi.tiff_info
+            height, width = pi.shape
+            rgbtiff[256] = width
+            rgbtiff[257] = height
+            graytiff = rgbtiff
+            graytiff[262] = 1
 
-        e488_output = subfolders[1] + f"/{tiff_name}"
-        e488_img = Image.fromarray(e488)
-        e488_img.save(e488_output, format="tiff", tiffinfo = graytiff)
+            e405_output = subfolders[0] + f"/{tiff_name}"
+            e405_img = Image.fromarray(e405)
+            e405_img.save(e405_output, format="tiff", tiffinfo = graytiff)
 
-        pi_output = subfolders[2] + f"/{tiff_name}"
-        pi_img = Image.fromarray(pi)
-        pi_img.save(pi_output, format="tiff", tiffinfo = graytiff)
-        
-        ro_output = subfolders[3] + f"/{tiff_name}"
-        ro_img = Image.fromarray(ro)
-        ro_img.save(ro_output, format="tiff", tiffinfo = graytiff)
+            e488_output = subfolders[1] + f"/{tiff_name}"
+            e488_img = Image.fromarray(e488)
+            e488_img.save(e488_output, format="tiff", tiffinfo = graytiff)
 
-        lut_output = subfolders[4] + f"/{tiff_name}"
-        lut_img = Image.fromarray(lut)
-        lut_img.save(lut_output, format="tiff", tiffinfo = rgbtiff)
+            pi_output = subfolders[2] + f"/{tiff_name}"
+            pi_img = Image.fromarray(pi)
+            pi_img.save(pi_output, format="tiff", tiffinfo = graytiff)
+            
+            ro_output = subfolders[3] + f"/{tiff_name}"
+            ro_img = Image.fromarray(ro)
+            ro_img.save(ro_output, format="tiff", tiffinfo = graytiff)
 
-        complete_message.set("Global RO-index completed !!!")
+            lut_output = subfolders[4] + f"/{tiff_name}"
+            lut_img = Image.fromarray(lut)
+            lut_img.save(lut_output, format="tiff", tiffinfo = rgbtiff)
 
+    end_time = time.perf_counter()
+    ct = round(end_time - start_time, 2)  # consumed time
+    ips = round(n_img.get() / ct, 2)  # img per sec
 
-# def generate_pre_mosaic(input_img_dir: str, output_folders: list[str]) -> None:
-#     czi = CziReader(input_img_dir)
-#     rgbtiff = czi.tiff_info
-#     graytiff = rgbtiff
-#     graytiff[262] = 1
-#     tiff_name = czi.filename + ".tif"
-#     arr = czi.arr
-#     e405 = np.moveaxis(arr.take(0, 2).squeeze(), 0, 1)
-#     e488 = np.moveaxis(arr.take(1, 2).squeeze(), 0, 1)
-#     pi = np.moveaxis(arr.take(2, 2).squeeze(), 0, 1)
-#     ro, lut = cyto_roGFP2_GRX(e405, e488)
-
-#     e405_output = output_folders[0] + f"/{tiff_name}"
-#     e405_img = Image.fromarray(e405)
-#     e405_img.save(e405_output, format="tiff", tiffinfo = graytiff)
-
-#     e488_output = output_folders[1] + f"/{tiff_name}"
-#     e488_img = Image.fromarray(e488)
-#     e488_img.save(e488_output, format="tiff", tiffinfo = graytiff)
-
-#     pi_output = output_folders[2] + f"/{tiff_name}"
-#     pi_img = Image.fromarray(pi)
-#     pi_img.save(pi_output, format="tiff", tiffinfo = graytiff)
-    
-#     ro_output = output_folders[3] + f"/{tiff_name}"
-#     ro_img = Image.fromarray(ro)
-#     ro_img.save(ro_output, format="tiff", tiffinfo = graytiff)
-
-#     lut_output = output_folders[4] + f"/{tiff_name}"
-#     lut_img = Image.fromarray(lut)
-#     lut_img.save(lut_output, format="tiff", tiffinfo = rgbtiff)
-    
+    timer_message.set(f"---------- {ct} secs [{ips} img/sec] ----------")
+    done_message.set("Global RO-index completed !!!")
     
 
 if __name__ == "__main__":
@@ -258,9 +311,9 @@ if __name__ == "__main__":
     # Window
     #<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
     app = tk.Tk()
-    app.iconbitmap(resource_path("icon.ico"))
+    app.iconbitmap(resource_path("roGFP2_icon.ico"))
     app.title("roGFP2")
-    app.geometry("600x400")
+    app.geometry("600x450")
 
     title_label = tk.Label(
         master=app, 
@@ -275,6 +328,7 @@ if __name__ == "__main__":
     grouping_csv = tk.StringVar()
     input_message = tk.StringVar()
     metadata_dir = tk.StringVar()
+    n_img = tk.IntVar()
 
     choose_folder_frame = tk.Frame(master=app)
 
@@ -298,53 +352,49 @@ if __name__ == "__main__":
         text="CZI file",
         textvariable=input_message,
         font="Calibri 13"
-    ).pack(padx=20, pady=0, fill='x')
+    ).pack(padx=20, pady=5, fill='x')
 
     choose_folder_frame.pack(padx=20, fill='x')
 
     #<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
-    # Pre-mosaic
+    # Compute
     #<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
-    complete_message = tk.StringVar()
+    done_message = tk.StringVar()
+    timer_message = tk.StringVar()
 
     compute_frame = tk.Frame(master=app)
 
+    # ----- Local -----
     tk.Button(
         master=compute_frame,
         text="Run local",
         font="Calibri 16",
         relief="ridge",
-        command=compute_pre_mosaic
-    ).pack(padx=20, pady=0, fill='x')
+        command=compute_local
+    ).pack(padx=20, pady=10, fill='x')
 
-    tk.Label(
-        master=compute_frame,
-        text="Pre-mosaic",
-        textvariable=complete_message,
-        font="Calibri 13"
-    ).pack(padx=20, pady=0, fill='x')
-
-    compute_frame.pack(padx=20, pady=10, fill='x')
-
-    #<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
-    # Mosaic
-    #<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
-    complete_message = tk.StringVar()
-
+    # ----- Global -----
     tk.Button(
         master=compute_frame,
         text="Run global",
         font="Calibri 16",
         relief="ridge",
-        command=compute_mosaic
-    ).pack(padx=20, pady=20, fill='x')
+        command=compute_global
+    ).pack(padx=20, pady=10, fill='x')
 
     tk.Label(
         master=compute_frame,
         text="Global RO-index",
-        textvariable=complete_message,
+        textvariable=done_message,
         font="Calibri 13"
-    ).pack(padx=20, pady=0, fill='x')
+    ).pack(padx=20, pady=10, fill='x')
+
+    tk.Label(
+        master=compute_frame,
+        text="Global RO-index",
+        textvariable=timer_message,
+        font="Calibri 13"
+    ).pack(padx=20, pady=5, fill='x')
 
     compute_frame.pack(padx=20, pady=10, fill='x')
     

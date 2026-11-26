@@ -1,0 +1,1 @@
+pyinstaller --onefile --noconsole --clean --name=roGFP2-Win64-2026Nov --icon "roGFP2_icon.ico" --add-data "roGFP2_icon.ico:." gui_roGFP2.py

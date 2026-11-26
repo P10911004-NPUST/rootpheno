@@ -1,5 +1,4 @@
 
-
 import numpy as np
 
 from skimage.morphology import disk as kernel_disk
@@ -35,8 +34,9 @@ def extract_root_region(arr: np.ndarray, kernel_size: int = 3) -> np.ndarray:
 
 def percentile_filter(arr: np.ndarray, perc: tuple = (0, 99)) -> np.ndarray:
     # Discard saturated pixels, especially the root cap
+    if arr.dtype != np.double:
+        arr = np.double(arr)
     raw_arr = arr
-    arr = np.double(arr)
     bg_val = arr.min()
     lower_threshold = np.percentile(arr, perc[0])
     upper_threshold = np.percentile(arr, perc[1])
