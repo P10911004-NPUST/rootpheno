@@ -11,8 +11,9 @@ from pathlib import Path
 from datetime import datetime
 from tkinter import filedialog
 
-from rootpheno.app.utils import resource_path
 from rootpheno.imread.CziReader import CziReader
+from rootpheno.app.utils import resource_path
+from rootpheno.biosensor.utils import gray_to_lut, gray_to_rgb
 from rootpheno.biosensor.cyto_roGFP2_GRX import cyto_roGFP2_GRX
 from rootpheno.stitcher.stitch_pair import stitch_pair
 
@@ -22,9 +23,11 @@ date_time = datetime.now().strftime("%Y%m%d-%H%M%S")
 
 
 def get_folder_path() -> None:
+    input_folder_dir.set("")
     input_message.set("")
     done_message.set("")
     timer_message.set("")
+    output_folder_message.set("")
     _input_folder_path = filedialog.askdirectory()
     _input_folder_path = Path(_input_folder_path).expanduser().resolve()
     input_folder_dir.set(_input_folder_path.as_posix())
@@ -112,10 +115,26 @@ def guess_ordering(csv: pd.DataFrame) -> pd.DataFrame:
     return pd.DataFrame(ordering)
 
 
+def try_extract_pi(arr: np.ndarray):
+    arr = arr.squeeze()
+    if arr.ndim == 2:
+        pi = arr
+    elif arr.ndim == 3:
+        pi = np.take(arr, 2, 2)
+    else:
+        pi = np.zeros(arr.shape)
+    pi = np.moveaxis(pi, 0, 1)
+    return pi
+
+
 def compute_local():
     start_time = time.perf_counter()
+    done_message.set("")
+    timer_message.set("")
+    output_folder_message.set("")
     input_folder = Path(input_folder_dir.get())
     output_folder = input_folder.parent / ("OUT_" + input_folder.stem)
+    output_folder_dir.set(output_folder.as_posix())
     output_folder = output_folder / "pre_mosaic"
     subfolders = []
     for s in ['405 nm', '488 nm', 'PI', 'RO', 'RO_LUT']:
@@ -148,8 +167,8 @@ def compute_local():
         e488_img.save(e488_output, format="tiff", tiffinfo = graytiff)
 
         pi_output = subfolders[2] + f"/{tiff_name}"
-        pi_img = Image.fromarray(pi)
-        pi_img.save(pi_output, format="tiff", tiffinfo = graytiff)
+        pi_img = Image.fromarray(gray_to_rgb(pi))
+        pi_img.save(pi_output, format="tiff", tiffinfo = rgbtiff)
         
         ro_output = subfolders[3] + f"/{tiff_name}"
         ro_img = Image.fromarray(ro)
@@ -171,30 +190,36 @@ def compute_local():
         df = csv[csv["grouping"] == g]
         df = df.sort_values("ordering")
         czi_list = (df.dirname + "/" + df.basename).tolist()
-        for i in range(len(czi_list)):
-            stitch_success = False
+        if czi_list is None or len(czi_list) < 1:
+            continue
+        czi = CziReader(czi_list[0])
+        arr = czi.arr
+        e405 = np.moveaxis(arr.take(0, 2).squeeze(), 0, 1)
+        e488 = np.moveaxis(arr.take(1, 2).squeeze(), 0, 1)
+        pi = np.moveaxis(arr.take(2, 2).squeeze(), 0, 1)
+        ro, lut = cyto_roGFP2_GRX(e405, e488)
+        stitch_success = len(czi_list)
+        for i in range(1, len(czi_list)):
             czi = CziReader(czi_list[i])
             tiff_name = czi.filename + ".tif"
             arr = czi.arr
-            if i == 0:
-                e405 = np.moveaxis(arr.take(0, 2).squeeze(), 0, 1)
-                e488 = np.moveaxis(arr.take(1, 2).squeeze(), 0, 1)
-                pi = np.moveaxis(arr.take(2, 2).squeeze(), 0, 1)
-
             try:
-                stitch_success = True
                 _e405 = np.moveaxis(arr.take(0, 2).squeeze(), 0, 1)
                 _e488 = np.moveaxis(arr.take(1, 2).squeeze(), 0, 1)
+                _ro, _lut = cyto_roGFP2_GRX(_e405, _e488)
                 _pi = np.moveaxis(arr.take(2, 2).squeeze(), 0, 1)
                 pi, transform = stitch_pair(pi, _pi)
                 e405, _ = stitch_pair(e405, _e405, transform)
                 e488, _ = stitch_pair(e488, _e488, transform)
+                ro, _ = stitch_pair(ro, _ro, transform)
             except:
+                print("Stitch fail")
+                stitch_success -= 1
                 continue
 
-        ro, lut = cyto_roGFP2_GRX(e405, e488)
 
-        if stitch_success:
+        if stitch_success > 1:
+            lut = gray_to_lut(ro)
             rgbtiff = czi.tiff_info
             height, width = pi.shape
             rgbtiff[256] = width
@@ -211,8 +236,8 @@ def compute_local():
             e488_img.save(e488_output, format="tiff", tiffinfo = graytiff)
 
             pi_output = subfolders[2] + f"/{tiff_name}"
-            pi_img = Image.fromarray(pi)
-            pi_img.save(pi_output, format="tiff", tiffinfo = graytiff)
+            pi_img = Image.fromarray(gray_to_rgb(pi))
+            pi_img.save(pi_output, format="tiff", tiffinfo = rgbtiff)
             
             ro_output = subfolders[3] + f"/{tiff_name}"
             ro_img = Image.fromarray(ro)
@@ -228,12 +253,17 @@ def compute_local():
 
     timer_message.set(f"---------- {ct} secs [{ips} img/sec] ----------")
     done_message.set("Local RO-index completed !!!")
+    output_folder_message.set(f"Images save to:\n{output_folder_dir.get()}")
 
 
 def compute_global():
     start_time = time.perf_counter()
+    done_message.set("")
+    timer_message.set("")
+    output_folder_message.set("")
     input_folder = Path(input_folder_dir.get())
     output_folder = input_folder.parent / ("OUT_" + input_folder.stem)
+    output_folder_dir.set(output_folder.as_posix())
     output_folder = output_folder / "mosaic"
     subfolders = []
     for s in ['405 nm', '488 nm', 'PI', 'RO', 'RO_LUT']:
@@ -246,16 +276,16 @@ def compute_global():
         df = csv[csv["grouping"] == g]
         df = df.sort_values("ordering")
         czi_list = (df.dirname + "/" + df.basename).tolist()
-        for i in range(len(czi_list)):
-            stitch_success = False
+        czi = CziReader(czi_list[0])
+        arr = czi.arr
+        e405 = np.moveaxis(arr.take(0, 2).squeeze(), 0, 1)
+        e488 = np.moveaxis(arr.take(1, 2).squeeze(), 0, 1)
+        pi = np.moveaxis(arr.take(2, 2).squeeze(), 0, 1)
+        stitch_success = len(czi_list)
+        for i in range(1, len(czi_list)):
             czi = CziReader(czi_list[i])
             tiff_name = czi.filename + ".tif"
             arr = czi.arr
-            if i == 0:
-                e405 = np.moveaxis(arr.take(0, 2).squeeze(), 0, 1)
-                e488 = np.moveaxis(arr.take(1, 2).squeeze(), 0, 1)
-                pi = np.moveaxis(arr.take(2, 2).squeeze(), 0, 1)
-
             try:
                 _e405 = np.moveaxis(arr.take(0, 2).squeeze(), 0, 1)
                 _e488 = np.moveaxis(arr.take(1, 2).squeeze(), 0, 1)
@@ -263,13 +293,13 @@ def compute_global():
                 pi, transform = stitch_pair(pi, _pi)
                 e405, _ = stitch_pair(e405, _e405, transform)
                 e488, _ = stitch_pair(e488, _e488, transform)
-                stitch_success = True
             except:
+                stitch_success -= 1
                 continue
 
         ro, lut = cyto_roGFP2_GRX(e405, e488)
 
-        if stitch_success:
+        if stitch_success > 1:
             rgbtiff = czi.tiff_info
             height, width = pi.shape
             rgbtiff[256] = width
@@ -286,8 +316,8 @@ def compute_global():
             e488_img.save(e488_output, format="tiff", tiffinfo = graytiff)
 
             pi_output = subfolders[2] + f"/{tiff_name}"
-            pi_img = Image.fromarray(pi)
-            pi_img.save(pi_output, format="tiff", tiffinfo = graytiff)
+            pi_img = Image.fromarray(gray_to_rgb(pi))
+            pi_img.save(pi_output, format="tiff", tiffinfo = rgbtiff)
             
             ro_output = subfolders[3] + f"/{tiff_name}"
             ro_img = Image.fromarray(ro)
@@ -303,7 +333,70 @@ def compute_global():
 
     timer_message.set(f"---------- {ct} secs [{ips} img/sec] ----------")
     done_message.set("Global RO-index completed !!!")
-    
+    output_folder_message.set(f"Images save to:\n{output_folder_dir.get()}")
+
+
+def compute_pi():
+    start_time = time.perf_counter()
+    done_message.set("")
+    timer_message.set("")
+    output_folder_message.set("")
+    input_folder = Path(input_folder_dir.get())
+    output_folder = input_folder.parent / ("OUT_" + input_folder.stem)
+    output_folder_dir.set(output_folder.as_posix())
+    output_folder = output_folder / "pre_mosaic"
+    output_folder.mkdir(parents=True, exist_ok=True)
+    csv = pd.read_csv(metadata_dir.get())
+    img_list = (csv.dirname + "/" + csv.basename).tolist()
+    for img_dir in img_list:
+        czi = CziReader(img_dir)
+        tiff_name = czi.filename + ".tif"
+        pi = try_extract_pi(czi.arr)
+        pi_output = output_folder.as_posix() + f"/{tiff_name}"
+        pi_img = Image.fromarray(gray_to_rgb(pi))
+        pi_img.save(pi_output, format="tiff", tiffinfo = czi.tiff_info)
+        
+    # Stitching pre-mosaic images
+    output_folder = output_folder.with_name("mosaic")
+    output_folder.mkdir(parents=True, exist_ok=True)
+    for g in np.unique(csv.grouping):
+        df = csv[csv["grouping"] == g]
+        df = df.sort_values("ordering")
+        czi_list = (df.dirname + "/" + df.basename).tolist()
+        if czi_list is None or len(czi_list) < 1:
+            continue
+        czi = CziReader(czi_list[0])
+        pi = try_extract_pi(czi.arr)
+
+        stitch_success = len(czi_list)
+        for i in range(1, len(czi_list)):
+            czi = CziReader(czi_list[i])
+            tiff_name = czi.filename + ".tif"
+            try:
+                _pi = try_extract_pi(czi.arr)
+                pi, transform = stitch_pair(pi, _pi)
+            except:
+                stitch_success -= 1
+                continue
+
+        if stitch_success > 1:
+            rgbtiff = czi.tiff_info
+            height, width = pi.shape
+            rgbtiff[256] = width
+            rgbtiff[257] = height
+
+            pi_output = output_folder.as_posix() + f"/{tiff_name}"
+            pi_img = Image.fromarray(gray_to_rgb(pi))
+            pi_img.save(pi_output, format="tiff", tiffinfo = rgbtiff)
+
+    end_time = time.perf_counter()
+    ct = round(end_time - start_time, 2)  # consumed time
+    ips = round(n_img.get() / ct, 2)      # img per sec
+
+    timer_message.set(f"---------- {ct} secs [{ips} img/sec] ----------")
+    done_message.set("PI mosaic completed !!!")
+    output_folder_message.set(f"Images save to:\n{output_folder_dir.get()}")
+ 
 
 if __name__ == "__main__":
     mp.freeze_support()
@@ -313,7 +406,7 @@ if __name__ == "__main__":
     app = tk.Tk()
     app.iconbitmap(resource_path("roGFP2_icon.ico"))
     app.title("roGFP2")
-    app.geometry("600x450")
+    app.geometry("600x500")
 
     title_label = tk.Label(
         master=app, 
@@ -325,6 +418,7 @@ if __name__ == "__main__":
     # Folder path and Metadata
     #<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
     input_folder_dir = tk.StringVar()
+    output_folder_dir = tk.StringVar()
     grouping_csv = tk.StringVar()
     input_message = tk.StringVar()
     metadata_dir = tk.StringVar()
@@ -338,7 +432,7 @@ if __name__ == "__main__":
         font="Calibri 16",
         relief="ridge",
         command=get_folder_path
-    ).pack(padx=20, pady=5, fill='x')
+    ).pack(padx=20, pady=20, fill='x')
 
     tk.Label(
         master=choose_folder_frame,
@@ -359,10 +453,19 @@ if __name__ == "__main__":
     #<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
     # Compute
     #<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
-    done_message = tk.StringVar()
-    timer_message = tk.StringVar()
-
     compute_frame = tk.Frame(master=app)
+
+    compute_frame.columnconfigure(0, weight=1)
+    compute_frame.columnconfigure(1, weight=1)
+
+    # ----- PI stain -----
+    tk.Button(
+        master=compute_frame,
+        text="PI stain mosaic",
+        font="Calibri 16",
+        relief="ridge",
+        command=compute_pi
+    ).grid(row=0, column=0, columnspan=2, sticky='nsew', padx=20, pady=10)
 
     # ----- Local -----
     tk.Button(
@@ -371,7 +474,7 @@ if __name__ == "__main__":
         font="Calibri 16",
         relief="ridge",
         command=compute_local
-    ).pack(padx=20, pady=10, fill='x')
+    ).grid(row=1, column=0, sticky='nsew', padx=20, pady=5)
 
     # ----- Global -----
     tk.Button(
@@ -380,25 +483,47 @@ if __name__ == "__main__":
         font="Calibri 16",
         relief="ridge",
         command=compute_global
-    ).pack(padx=20, pady=10, fill='x')
+    ).grid(row=1, column=1, sticky='nsew', padx=20, pady=5)
+
+
+    compute_frame.pack(padx=20, pady=5, fill='x')
+    
+    #<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
+    # Done Message
+    #<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
+    done_message = tk.StringVar()
+    timer_message = tk.StringVar()
+    output_folder_message = tk.StringVar()
+
+    done_message_frame = tk.Frame(master=app)
 
     tk.Label(
-        master=compute_frame,
-        text="Global RO-index",
-        textvariable=done_message,
-        font="Calibri 13"
-    ).pack(padx=20, pady=10, fill='x')
-
-    tk.Label(
-        master=compute_frame,
-        text="Global RO-index",
+        master=done_message_frame,
+        text="Timer message",
         textvariable=timer_message,
         font="Calibri 13"
     ).pack(padx=20, pady=5, fill='x')
 
-    compute_frame.pack(padx=20, pady=10, fill='x')
+    tk.Label(
+        master=done_message_frame,
+        text="Done message",
+        textvariable=done_message,
+        font="Calibri 15 bold"
+    ).pack(padx=20, pady=5, fill='x')
+
+    tk.Label(
+        master=done_message_frame,
+        text="Output folder",
+        textvariable=output_folder_message,
+        font="Calibri 13"
+    ).pack(padx=20, pady=5, fill='x')
     
+    done_message_frame.pack(padx=20, pady=5, fill='x')
+
     #<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
     # Execute
     #<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
     app.mainloop()
+
+
+

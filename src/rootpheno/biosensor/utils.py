@@ -6,7 +6,10 @@ from skimage.filters import threshold_otsu
 from skimage.filters.rank import median as median_filter
 
 
-def scale_min_max(arr: np.ndarray, value_range: tuple[float, float] = (0.0, 1.0)) -> np.ndarray:
+def scale_min_max(
+    arr: np.ndarray | list | tuple, 
+    value_range: tuple[float, float] = (0.0, 1.0)
+) -> np.ndarray:
     arr = np.asarray(arr, dtype=np.float64)
     vmin = np.min(arr)
     vmax = np.max(arr)
@@ -49,7 +52,7 @@ def percentile_filter(arr: np.ndarray, perc: tuple = (0, 99)) -> np.ndarray:
 
 def gray_to_lut(arr: np.ndarray) -> np.ndarray:
     if arr.dtype != "np.uint8":
-        arr = scale_min_max(arr) * 255
+        arr = convert_to_uint8(arr)
     lut = np.zeros((256, 3), dtype=np.uint8)
     # The lower part (blue -> white)
     lut[:128, 0] = np.linspace(0, 255, 128) # R
@@ -59,5 +62,26 @@ def gray_to_lut(arr: np.ndarray) -> np.ndarray:
     lut[128:, 0] = 255                      # R
     lut[128:, 1] = np.linspace(255, 0, 128) # G
     lut[128:, 2] = np.linspace(255, 0, 128) # B
-    arr = convert_to_uint8(arr)
     return lut[arr]
+
+
+def gray_to_rgb(arr: np.ndarray, rgb = (255, 0, 0)) -> np.ndarray:
+    intensity = scale_min_max(arr)
+    color = scale_min_max(rgb)
+    rgb_arr = intensity[..., np.newaxis] * color
+    return convert_to_uint8(rgb_arr)
+
+
+#<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
+# Testing
+#<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
+# if __name__ == "__main__":
+#     import numpy as np
+#     from PIL import Image
+#     from rootpheno.biosensor.utils import *
+#     from rootpheno.imread.CziReader import CziReader
+#     czi = CziReader("./tests/img/RO-index/czi/2DAT22C-1-1.czi")
+#     arr = czi.arr
+#     gray = np.take(arr, 2, 2).squeeze()
+#     rgb = gray_to_rgb(gray)
+#     Image.fromarray(rgb).show()
