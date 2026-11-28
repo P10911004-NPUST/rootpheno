@@ -213,7 +213,6 @@ def compute_local():
                 e488, _ = stitch_pair(e488, _e488, transform)
                 ro, _ = stitch_pair(ro, _ro, transform)
             except:
-                print("Stitch fail")
                 stitch_success -= 1
                 continue
 
